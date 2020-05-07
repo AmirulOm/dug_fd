@@ -1,3 +1,8 @@
+/*
+* Written by : Amirul
+* email : amirul.abdullah89@gmail.com
+*/
+
 #include <cuda.h>
 #include <iostream>
 #include <array>
@@ -38,7 +43,7 @@ __global__ void fd_kernel(double *a, double *b)
     const size_t rowOffset = SIZE; 
     int lastThread = blockDim.x - 1;
     size_t row=0;
-    
+
     //Last block checker to disable thread overflow
     if( blockIdx.x == (gridDim.x -1) ){
       lastThread = rowOffset - ((blockIdx.x  * blockDim.x) - offset) - 1;
