@@ -14,7 +14,7 @@
 #endif
 
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 512
+#define BLOCK_SIZE 1000
 #endif
 
 #define STENCIL_SIZE 3
