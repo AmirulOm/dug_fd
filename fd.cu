@@ -19,64 +19,47 @@ cudaError_t checkCuda(cudaError_t result)
   return result;
 }
 
-// last block to handle left x-direction stencil computation
-__device__ void fd_leftover_kernel(double *a, double *b,const int& row,const int& i,const int& offset,const int& rowOffset)
-{
-  __shared__ double dfl[3][9];
-
-  if(threadIdx.x < blockIdx.x)
-  {
-    dfl[0][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * row) - offset +  blockDim.x];
-    dfl[1][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * (row+1)) - offset + blockDim.x];
-    dfl[2][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * (row+2)) - offset + blockDim.x];
-  }
-
-  __syncthreads();
-
-  if(threadIdx.x < blockIdx.x)
-  {
-    int id = i + (blockIdx.x * blockDim.x) + (rowOffset * (row+1)) - offset + blockDim.x;
-
-    if(i != 0 && i != (9 - 1)) // branch divergence on first and last thread
-    { 
-      b[id]= dfl[1][i]/2.0 + dfl[1][i+1]/8.0 + dfl[1][i-1]/8.0 +  dfl[0][i]/8.0 +  dfl[2][i]/8.0;
-    }
-  }
-}
-
 __global__ void fd_kernel(double *a, double *b)
 {
     __shared__ double df[3][1000];
   
     const int i = threadIdx.x;
     const int offset = blockIdx.x;
+    const int globalInd = (i + (blockIdx.x * blockDim.x) - offset);
     const size_t rowOffset = SIZE; 
+    int lastThread = blockDim.x - 1;
     size_t row=0;
 
-    df[0][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * row) - offset];
-    df[1][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * (row+1)) - offset];
-   
-
-    for(; row < SIZE-2; ++row)
-    {
-      df[2][i] = a[i + (blockIdx.x * blockDim.x) + (rowOffset * (row+2)) - offset];
-      __syncthreads();
-
-      int id = i + (blockIdx.x * blockDim.x) +  (rowOffset * (row+1) - offset);
-      
-      if(i != 0 && i != (blockDim.x - 1)) // branch divergence on first and last thread
-      {  
-        b[id]= df[1][i]/2.0 + df[1][i+1]/8.0 + df[1][i-1]/8.0 +  df[0][i]/8.0 +  df[2][i]/8.0;
-      }
-
-      if( blockIdx.x  == (gridDim.x - 1))
-        fd_leftover_kernel(a, b, row,i, offset, rowOffset);
-      
-        
-      df[0][i] = df[1][i];
-      df[1][i] = df[2][i];
-      
+    if( blockIdx.x == (gridDim.x -1) ){
+      lastThread = rowOffset - ((blockIdx.x  * blockDim.x) - offset) - 1;
     }
+    
+     if( globalInd < rowOffset ){
+      df[0][i] = a[globalInd + (rowOffset * row)];
+      df[1][i] = a[globalInd + (rowOffset * (row+1))] ;
+     }
+  
+      for(; row < SIZE-2; ++row)
+      {
+         if( globalInd < rowOffset ){
+          df[2][i] = a[globalInd + (rowOffset * (row+2))];
+         }
+        __syncthreads();
+  
+        if( globalInd < rowOffset ){
+          int id = globalInd + (rowOffset * (row+1));
+          
+          if(i != 0 && i != lastThread) // branch divergence on first and last thread
+          {  
+            b[id]= df[1][i]/2.0 + df[1][i+1]/8.0 + df[1][i-1]/8.0 +  df[0][i]/8.0 +  df[2][i]/8.0;
+          }
+            
+          df[0][i] = df[1][i];
+          df[1][i] = df[2][i];
+        }
+      }
+     
+   
 }
 
 
@@ -110,7 +93,7 @@ void fd()
     checkCuda( cudaMemcpy(a_dev, a_host, sizeof(double) * SIZE * SIZE, cudaMemcpyHostToDevice) );  
     checkCuda( cudaMemcpy(b_dev, a_host, sizeof(double) * SIZE * SIZE, cudaMemcpyHostToDevice) ); 
 
-    dim3 grid(10), block(1000);
+    dim3 grid(11), block(1000);
     
     for (size_t iter = 0; iter < ITER_SIZE; ++iter)
       if( iter % 2 == 0)
